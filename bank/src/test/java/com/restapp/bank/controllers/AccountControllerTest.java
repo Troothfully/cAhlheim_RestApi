@@ -10,11 +10,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -26,6 +24,7 @@ import static org.mockito.Mockito.when;
 import com.restapp.bank.models.Account;
 import com.restapp.bank.models.Transaction;
 import com.restapp.bank.models.User;
+import java.time.LocalDate;
 
 class AccountControllerTest {
 
@@ -37,8 +36,19 @@ class AccountControllerTest {
 
                 List<Account> accounts = new ArrayList<>();
                 List<Transaction> transactions = new ArrayList<>();
+                List<User> users = new ArrayList<>();
 
-                when(userRepository.findById(1)).thenReturn(Optional.of(new User(1, "Alice Smith", "alice@example.com", "Admin")));
+                when(userRepository.findByEmail("alice@example.com"))
+                                .thenReturn(java.util.Optional.empty());
+                when(userRepository.findAll()).thenAnswer(invocation -> new ArrayList<>(users));
+                when(userRepository.findById(anyInt())).thenAnswer(invocation ->
+                                users.stream().filter(u -> u.getId().equals(invocation.getArgument(0))).findFirst());
+                when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+                        User user = invocation.getArgument(0);
+                        users.removeIf(existing -> existing.getId().equals(user.getId()));
+                        users.add(user);
+                        return user;
+                });
 
                 when(accountRepository.findAll()).thenAnswer(invocation -> new ArrayList<>(accounts));
                 when(accountRepository.findById(anyInt())).thenAnswer(invocation ->
@@ -67,10 +77,20 @@ class AccountControllerTest {
 
         mockMvc.perform(post("/api/accounts")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"userId\":1,\"accountType\":\"SAVINGS\"}"))
+                        .content("{\"name\":\"Alice Smith\",\"email\":\"alice@example.com\",\"accountType\":\"SAVINGS\"}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.userId").value(1))
+                .andExpect(jsonPath("$.id").value("1"))
+                .andExpect(jsonPath("$.name").value("Alice Smith"))
+                .andExpect(jsonPath("$.email").value("alice@example.com"))
                 .andExpect(jsonPath("$.accountType").value("SAVINGS"))
+                .andExpect(jsonPath("$.balance").value(0.0));
+
+        mockMvc.perform(get("/api/accounts/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("1"))
+                .andExpect(jsonPath("$.name").value("Alice Smith"))
+                .andExpect(jsonPath("$.email").value("alice@example.com"))
+                .andExpect(jsonPath("$.accountType").value("Savings"))
                 .andExpect(jsonPath("$.balance").value(0.0));
 
         mockMvc.perform(post("/api/accounts/1/deposit")
@@ -87,7 +107,13 @@ class AccountControllerTest {
 
         mockMvc.perform(get("/api/accounts/1/transactions"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("DEPOSIT")))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("WITHDRAWAL")));
+                .andExpect(jsonPath("$[0].id").value("1"))
+                .andExpect(jsonPath("$[0].type").value("Deposit"))
+                .andExpect(jsonPath("$[0].amount").value(500.0))
+                .andExpect(jsonPath("$[0].date").value(LocalDate.now().toString()))
+                .andExpect(jsonPath("$[1].id").value("2"))
+                .andExpect(jsonPath("$[1].type").value("Withdrawal"))
+                .andExpect(jsonPath("$[1].amount").value(200.0))
+                .andExpect(jsonPath("$[1].date").value(LocalDate.now().toString()));
     }
 }
